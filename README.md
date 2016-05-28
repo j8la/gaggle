@@ -49,7 +49,25 @@ node gaggle-js -c [id]
 Where "id" is the cluster id that will be used for discovery.
 
 ### Docker
-Soon...
+To start Gaggle in Docker container :
+```
+docker run --name gaggle --net=host -d jbla/gaggle myid
+```
+
+"myid" is the cluster id that will be used for discovery. If it's not specified, the cluster id "gaggle" will be used :
+```
+docker run --name gaggle --net=host -d jbla/gaggle
+```
+
+Multicast and Docker are problematic for now, so only one Gaggle instance must be used by host with the **--net=host** option. This can evolve in the future with next Docker releases (i really hope). 
+
+If you use Swarm clusters and want to identify the container by name in a better way :
+```
+docker run --name gaggle-$(hostname) --net=host -d jbla/gaggle myid
+ 
+CONTAINER ID     IMAGE          COMMAND                  CREATED          STATUS          PORTS    NAMES
+ec35a2fc22ee     jbla/gaggle    "node gaggle.js -c my"   7 seconds ago    Up 6 seconds             gaggle-my-hostname1
+```
 
 ## REST API
 The 8000 TCP port is used for communication. The examples are given with the Curl utility. You can run commands on any instance.
