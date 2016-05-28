@@ -16,4 +16,4 @@ RUN npm install argparse \
 && npm install node-rest-client
 
 ENTRYPOINT ["node", "gaggle.js", "-c"]
-CMD ["gaggle"]
+CMD ["gaggle"] 
