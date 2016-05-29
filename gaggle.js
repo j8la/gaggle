@@ -1,7 +1,7 @@
 /*
 Name    : gaggle.js
 Author  : Julien Blanc
-Version : 1.0.0
+Version : 0.2.0
 Date    : 28/05/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
@@ -420,6 +420,9 @@ setTimeout(function(){
                             } else {
                                 log('ERR','The store can\'t be updated.');
                             }
+                            
+                            buffer = null;
+                            lc = null;
                             
                         }).on('error', function(err) {
                             log('WAR', entry + ' is starting at the same time.');
