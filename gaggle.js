@@ -38,6 +38,7 @@ var nrcl    = require('node-rest-client').Client;
 var fs      = require('fs');
 var ip      = require('ip');
 var os      = require('os');
+var cr      = require('crypto');
 
 
 //----------------------------------------- EXPRESS CONFIG
@@ -75,7 +76,8 @@ var appStruct = {
         system: os.type(),
         version: os.release(),
         arch: os.arch(),
-        ouptime: null
+        ouptime: null,
+        checksum: null
     },
     config: {
         clusterId: args.cluster,
@@ -105,6 +107,10 @@ appl.get('/api/status', function(req,res) {
     appStruct.status.suptime = Math.round((Date.now() - appStruct.status.sdate)/1000);
     appStruct.status.ouptime = os.uptime();
     res.send(appStruct.status);
+});
+
+appl.get('/api/status/checksum', function(req,res) {
+    res.send(appStruct.status.checksum);
 });
 
 appl.get('/api/config', function(req,res) {
@@ -142,10 +148,16 @@ appl.get('/api/store/:node/:key', function(req,res) {
 
 //----------- Function refresh store
 function refreshStore() {
+    
+    appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
+    
     for(var x in appStruct.config.members) {
         if(appStruct.config.members[x].address != ip.address()) {
             var args = {
-                data: { address: ip.address() },
+                data: { 
+                    address: ip.address(), 
+                    checksum: appStruct.status.checksum 
+                },
                 headers: { "Content-Type": "application/json" }
             }
             recl.post('http://' + appStruct.config.members[x].address + ':8000/api/store/refresh', args, function(data,res) {
@@ -155,6 +167,7 @@ function refreshStore() {
             });
         }
     }
+    
 }
 
 
@@ -162,14 +175,37 @@ function refreshStore() {
 
 // Refresh
 appl.post('/api/store/refresh', function(req,res) {
-    recl.get("http://" + req.body.address + ":8000/api/store", function(data,res) {
-        appStruct.store = data;
-        log('NFO','The store has been updated from ' + req.body.address + '.');
-        writeStore();
-    }).on('error', function(err) { 
-        log('ERR','An update has been detected from ' + req.body.address + ' but the store has not been updated.'); 
-    });
+    
+    if(appStruct.status.checksum != req.body.checksum) {
+        
+        var rc = req.body.checksum;
+        
+        recl.get("http://" + req.body.address + ":8000/api/store", function(data,res) {
+            
+            var buffer = data;
+            var lc = getHash(JSON.stringify(buffer));
+            
+            if(lc == rc) {
+                appStruct.store = buffer;
+                appStruct.status.checksum = lc;
+                log('NFO','The store has been updated from ' + req.body.address + '.');
+                writeStore();
+            } else {
+                log('ERR','An update has been detected from ' + req.body.address + ' but the store has not been updated. Checksum error.');
+            }
+            
+            buffer = null;
+            lc = null;
+            
+            
+        }).on('error', function(err) { 
+            log('ERR','An update has been detected from ' + req.body.address + ' but the store has not been updated.'); 
+        });
+        
+    }
+    
     res.sendStatus(200);
+    
 });
 
 // Create node
@@ -286,6 +322,7 @@ function loadStore() {
             log('ERR','Can\'t load store.json file.');
         } else {
             appStruct.store = JSON.parse(data);
+            appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
             log('NFO','Store loaded from store.json file.');
         }
     }); 
@@ -324,6 +361,15 @@ function log(type,msg) {
 }
 
 
+//----------------------------------------- CHECKSUM
+function getHash(str) {
+    return cr
+        .createHash('md5')
+        .update(str, 'utf8')
+        .digest('hex')
+}
+
+
 //----------------------------------------- GO!!
 log('NFO','Starting...');
 loadStore();
@@ -343,25 +389,54 @@ setTimeout(function(){
     var isUpdated = false;
     
     for(var entry in tmp) {
+        
         if(entry != ip.address()) {
+            
             if(isUpdated == true) {
+                
                 break;
+                
             } else {
+                
                 log('NFO','Updating store from an existing host...');
-                recl.get("http://" + entry + ":8000/api/store", function(data,res) {
-                    try {
-                        appStruct.store = data;
-                        log('NFO','The store is updated from ' + entry + '.');
-                        writeStore();
-                        isUpdated = true;
-                    } catch(e) {
-                        log('ERR','The store can\'t be updated.');
+                
+                recl.get("http://" + entry + ":8000/api/status/checksum", function(data,res) {
+                    
+                    var rc = data;
+                    
+                    if(appStruct.status.checksum != rc) {
+                    
+                        recl.get("http://" + entry + ":8000/api/store", function(data,res) {
+                            
+                            var buffer = data;
+                            var lc = getHash(JSON.stringify(buffer));
+                            
+                            if(lc == rc) {
+                                appStruct.store = data;
+                                appStruct.status.checksum = lc;
+                                log('NFO','The store is updated from ' + entry + '.');
+                                writeStore();
+                                isUpdated = true;
+                            } else {
+                                log('ERR','The store can\'t be updated.');
+                            }
+                            
+                        }).on('error', function(err) {
+                            log('WAR', entry + ' is starting at the same time.');
+                        })
+                        
+                    } else {
+                        log('NFO','The store is already up to date.');
                     }
-                }).on('error', function(err) {
-                    log('WAR', entry + ' is starting at the same time.');
-                })
+                    
+                }).on('error', function(err) { 
+                    log('ERR', entry + ' is unreachable. Can\'t get checksum and update store.'); 
+                });
+                    
             }
-        } 
+            
+        }
+         
     }
     
     
