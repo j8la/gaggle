@@ -1,8 +1,8 @@
 /*
 Name    : gaggle.js
 Author  : Julien Blanc
-Version : 0.2.0
-Date    : 28/05/2016
+Version : 0.3.0
+Date    : 30/05/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
 
@@ -38,7 +38,8 @@ var nrcl    = require('node-rest-client').Client;
 var fs      = require('fs');
 var ip      = require('ip');
 var os      = require('os');
-var cr      = require('crypto');
+var crypt   = require('crypto');
+var https   = require('https');
 
 
 //----------------------------------------- EXPRESS CONFIG
@@ -50,9 +51,9 @@ appl.use(bdyp.urlencoded({ extended: true }));
 
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '1.0.0',
+    version: '0.3.0',
     addHelp: true,
-    description: 'Gaggle cluster'
+    description: 'Gaggle distributed configuration service.'
 })
 
 parser.addArgument(
@@ -97,7 +98,13 @@ var htds    = new hstd({
 
 
 //----------------------------------------- REST API CLIENT INSTANCE
-var recl    = new nrcl();                   // Rest API client
+var recl_options = {
+    connection: {
+        rejectUnauthorized: false
+	}
+}
+
+var recl    = new nrcl(recl_options);       // Rest API client
 
 
 //----------------------------------------- REST API
@@ -160,7 +167,7 @@ function refreshStore() {
                 },
                 headers: { "Content-Type": "application/json" }
             }
-            recl.post('http://' + appStruct.config.members[x].address + ':8000/api/store/refresh', args, function(data,res) {
+            recl.post('https://' + appStruct.config.members[x].address + ':8000/api/store/refresh', args, function(data,res) {
                 //log('NFO', 'A notification has been sent to ' + appStruct.config.members[x].address + '.');
             }).on('error', function(err) { 
                 log('ERR', appStruct.config.members[x].address + ' is unreachable. The updating of the remote host failed.'); 
@@ -180,7 +187,7 @@ appl.post('/api/store/refresh', function(req,res) {
         
         var rc = req.body.checksum;
         
-        recl.get("http://" + req.body.address + ":8000/api/store", function(data,res) {
+        recl.get("https://" + req.body.address + ":8000/api/store", function(data,res) {
             
             var buffer = data;
             var lc = getHash(JSON.stringify(buffer));
@@ -363,7 +370,7 @@ function log(type,msg) {
 
 //----------------------------------------- CHECKSUM
 function getHash(str) {
-    return cr
+    return crypt
         .createHash('md5')
         .update(str, 'utf8')
         .digest('hex')
@@ -400,13 +407,13 @@ setTimeout(function(){
                 
                 log('NFO','Updating store from an existing host...');
                 
-                recl.get("http://" + entry + ":8000/api/status/checksum", function(data,res) {
+                recl.get("https://" + entry + ":8000/api/status/checksum", function(data,res) {
                     
                     var rc = data;
                     
                     if(appStruct.status.checksum != rc) {
                     
-                        recl.get("http://" + entry + ":8000/api/store", function(data,res) {
+                        recl.get("https://" + entry + ":8000/api/store", function(data,res) {
                             
                             var buffer = data;
                             var lc = getHash(JSON.stringify(buffer));
@@ -444,7 +451,12 @@ setTimeout(function(){
     
     
     //----------- EXPRESS LISTENING
-    appl.listen(8000, function() {});
+    //appl.listen(8000, function() {});
+    https.createServer({
+        key: fs.readFileSync('key.pem'),
+        cert: fs.readFileSync('cert.pem')
+    }, appl).listen(8000);
+    
     log('NFO','API is listening on ' + ip.address() + ':8000');
     
 }, 6000);

@@ -7,6 +7,8 @@ EXPOSE 8000
 
 ADD package.json /
 ADD gaggle.js /
+ADD cert.pem /
+ADD key.pem /
 
 RUN npm install argparse \
 && npm install body-parser \
