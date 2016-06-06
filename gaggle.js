@@ -1,8 +1,8 @@
 /*
 Name    : gaggle.js
 Author  : Julien Blanc
-Version : 0.3.0
-Date    : 30/05/2016
+Version : 0.4.0
+Date    : 06/06/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
 
@@ -49,6 +49,13 @@ appl.use(bdyp.json());
 appl.use(bdyp.urlencoded({ extended: true }));
 
 
+//----------------------------------------- HTTPS Server
+var wsrv = https.createServer({
+    key: fs.readFileSync('key.pem'),
+    cert: fs.readFileSync('cert.pem')
+}, appl);
+    
+    
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
     version: '0.3.0',
@@ -377,6 +384,14 @@ function getHash(str) {
 }
 
 
+//----------------------------------------- PROCESS EVENTS
+process.on('SIGTERM', function() {
+    wsrv.close({});
+    htds.stop();
+    process.exit(0);
+})
+
+
 //----------------------------------------- GO!!
 log('NFO','Starting...');
 loadStore();
@@ -451,11 +466,12 @@ setTimeout(function(){
     
     
     //----------- EXPRESS LISTENING
-    //appl.listen(8000, function() {});
-    https.createServer({
+    /*server = https.createServer({
         key: fs.readFileSync('key.pem'),
         cert: fs.readFileSync('cert.pem')
-    }, appl).listen(8000);
+    }, appl).listen(8000);*/
+    
+    wsrv.listen(8000);
     
     log('NFO','API is listening on ' + ip.address() + ':8000');
     
