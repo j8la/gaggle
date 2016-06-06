@@ -1,11 +1,16 @@
 FROM node:5.11.1
 
-MAINTAINER Julien Blanc
+MAINTAINER Julien Blanc <jbla@tuta.io>
 
-EXPOSE 2900/udp
-EXPOSE 8000
+EXPOSE 2900/udp 8000
 
 WORKDIR /gaggle
+
+COPY package.json /gaggle/
+COPY gaggle.js /gaggle/
+COPY cert.pem /gaggle/
+COPY key.pem /gaggle/
+COPY LICENSE /gaggle/
 
 RUN npm install argparse \
 && npm install body-parser \
@@ -13,12 +18,6 @@ RUN npm install argparse \
 && npm install host-discovery \
 && npm install ip \
 && npm install node-rest-client
-
-COPY package.json /gaggle/
-COPY gaggle.js /gaggle/
-COPY cert.pem /gaggle/
-COPY key.pem /gaggle/
-COPY LICENSE /gaggle/
 
 ENTRYPOINT ["node", "gaggle.js", "-c"]
 CMD ["gaggle"] 

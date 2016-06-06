@@ -1,6 +1,6 @@
 {
   "name": "gaggle",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Gaggle is a distributed configuration service that works with multicast discovery.",
   "main": "gaggle.js",
   "author": "Julien Blanc",

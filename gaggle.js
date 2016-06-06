@@ -58,7 +58,7 @@ var wsrv = https.createServer({
     
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '0.3.0',
+    version: '0.4.0',
     addHelp: true,
     description: 'Gaggle distributed configuration service.'
 })
@@ -97,7 +97,7 @@ var appStruct = {
 
 
 //----------------------------------------- HOST DISCOVERY
-var htds    = new hstd({
+var htds = new hstd({
     service: appStruct.config.clusterId,    // Default to 'all' 
     protocol: 'udp4',                       // Default to udp4, can be udp6 
     port: 2900                              // Default to 2900 
@@ -306,7 +306,12 @@ appl.delete('/api/store/:node/:key', function(req,res) {
 appl.put('/api/store/:node/:key', function(req,res) {
     if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty([req.params.key])) {
         if(typeof req.body.value != 'object' && typeof req.body.value != 'function' && typeof req.body.value != 'symbol') {
-            appStruct.store[req.params.node][req.params.key] = req.body.value;
+            var datajson = IsJsonString(req.body.value);
+            if(datajson != null) {
+                appStruct.store[req.params.node][req.params.key] = datajson;
+            } else {
+                appStruct.store[req.params.node][req.params.key] = req.body.value; 
+            }
             refreshStore();
             writeStore();
             res.sendStatus(200);
@@ -392,6 +397,20 @@ process.on('SIGTERM', function() {
 })
 
 
+//----------------------------------------- TEST & RETURNS JSON
+function IsJsonString(str) {
+    
+    var json = null;
+    
+    try {
+        json = JSON.parse(str);
+    } catch (e) {
+    }
+    
+    return json;
+}
+
+
 //----------------------------------------- GO!!
 log('NFO','Starting...');
 loadStore();
@@ -466,11 +485,6 @@ setTimeout(function(){
     
     
     //----------- EXPRESS LISTENING
-    /*server = https.createServer({
-        key: fs.readFileSync('key.pem'),
-        cert: fs.readFileSync('cert.pem')
-    }, appl).listen(8000);*/
-    
     wsrv.listen(8000);
     
     log('NFO','API is listening on ' + ip.address() + ':8000');
