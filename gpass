@@ -1,0 +1,15 @@
+#!/bin/bash
+
+red=$'\e[1;31m'
+grn=$'\e[1;32m'
+yel=$'\e[1;33m'
+end=$'\e[0m'
+
+printf "${red}This password must be set on each Gaggle instance!${end}\n"
+read -p "Gaggle user: " gUser
+read -s -p "Gaggle password: " gPassword
+printf '{"user":"%s","password":"%s"}\n' "$gUser" "$gPassword" > credentials.json
+printf "\n${yel}Gaggle password saved, you must restart your container.${end}\n"
+ 
+ 
+

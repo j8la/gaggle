@@ -1,8 +1,8 @@
 /*
 Name    : gaggle.js
 Author  : Julien Blanc
-Version : 0.4.0
-Date    : 06/06/2016
+Version : 0.5.0
+Date    : 07/06/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
 
@@ -32,6 +32,7 @@ var bdyp    = require('body-parser');
 var hstd    = require('host-discovery');
 var argp    = require('argparse').ArgumentParser;
 var nrcl    = require('node-rest-client').Client;
+var baut    = require('basic-auth');
 
 
 //------ Node modules
@@ -54,11 +55,34 @@ var wsrv = https.createServer({
     key: fs.readFileSync('key.pem'),
     cert: fs.readFileSync('cert.pem')
 }, appl);
+
+
+//----------------------------------------- SERVER AUTHENTICATION
+var auth = function (req, res, next) {
     
+  function unauthorized(res) {
+    res.set('WWW-Authenticate', 'Basic realm=Authorization Required');
+    return res.sendStatus(401);
+  };
+
+  var user = baut(req);
+
+  if (!user || !user.name || !user.pass) {
+    return unauthorized(res);
+  };
+
+  if (user.name === appStruct.credentials.user && user.pass === appStruct.credentials.password) {
+    return next();
+  } else {
+    return unauthorized(res);
+  };
+  
+};
+
     
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '0.4.0',
+    version: '0.5.0',
     addHelp: true,
     description: 'Gaggle distributed configuration service.'
 })
@@ -77,6 +101,10 @@ var args = parser.parseArgs();
 
 //----------------------------------------- APP STRUCTURE
 var appStruct = {
+    credentials: {
+        user: "default",
+        password: "6agg1e!!"
+    },
     status: {
         sdate: Date.now(),
         suptime: null,
@@ -98,52 +126,54 @@ var appStruct = {
 
 //----------------------------------------- HOST DISCOVERY
 var htds = new hstd({
-    service: appStruct.config.clusterId,    // Default to 'all' 
-    protocol: 'udp4',                       // Default to udp4, can be udp6 
-    port: 2900                              // Default to 2900 
+    service: appStruct.config.clusterId,   
+    protocol: 'udp4',                       
+    port: 2900                              
 });
 
 
 //----------------------------------------- REST API CLIENT INSTANCE
 var recl_options = {
+    user: appStruct.credentials.user,
+    password: appStruct.credentials.password,
     connection: {
         rejectUnauthorized: false
 	}
 }
 
-var recl    = new nrcl(recl_options);       // Rest API client
+var recl = new nrcl(recl_options);       // Rest API client
 
 
 //----------------------------------------- REST API
 
 //----------- GET
-appl.get('/api/status', function(req,res) {
+appl.get('/api/status', auth, function(req,res) {
     appStruct.status.suptime = Math.round((Date.now() - appStruct.status.sdate)/1000);
     appStruct.status.ouptime = os.uptime();
     res.send(appStruct.status);
 });
 
-appl.get('/api/status/checksum', function(req,res) {
+appl.get('/api/status/checksum', auth, function(req,res) {
     res.send(appStruct.status.checksum);
 });
 
-appl.get('/api/config', function(req,res) {
+appl.get('/api/config', auth, function(req,res) {
     res.send(appStruct.config);
 });
 
-appl.get('/api/log', function(req,res) {
+appl.get('/api/log', auth, function(req,res) {
     res.send(appStruct.log);
 });
 
-appl.get('/api/config/members', function(req,res) {
+appl.get('/api/config/members', auth, function(req,res) {
     res.send(appStruct.config.members);
 });
 
-appl.get('/api/store', function(req,res) {
+appl.get('/api/store', auth, function(req,res) {
     res.send(appStruct.store);
 });
 
-appl.get('/api/store/:node', function(req,res) {
+appl.get('/api/store/:node', auth, function(req,res) {
     if(appStruct.store.hasOwnProperty(req.params.node)) {
         res.send(appStruct.store[req.params.node]);
     } else {
@@ -151,7 +181,7 @@ appl.get('/api/store/:node', function(req,res) {
     }
 });
 
-appl.get('/api/store/:node/:key', function(req,res) {
+appl.get('/api/store/:node/:key', auth, function(req,res) {
     if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty(req.params.key)) {
         res.send(appStruct.store[req.params.node][req.params.key]);
     } else {
@@ -188,7 +218,7 @@ function refreshStore() {
 //----------- POST
 
 // Refresh
-appl.post('/api/store/refresh', function(req,res) {
+appl.post('/api/store/refresh', auth, function(req,res) {
     
     if(appStruct.status.checksum != req.body.checksum) {
         
@@ -223,7 +253,7 @@ appl.post('/api/store/refresh', function(req,res) {
 });
 
 // Create node
-appl.post('/api/store/:node', function(req,res) {
+appl.post('/api/store/:node', auth, function(req,res) {
     try {
         if(appStruct.store.hasOwnProperty(req.params.node)) {
             res.sendStatus(409);
@@ -243,7 +273,7 @@ appl.post('/api/store/:node', function(req,res) {
 });
 
 // Create key
-appl.post('/api/store/:node/:key', function(req,res) {
+appl.post('/api/store/:node/:key', auth, function(req,res) {
     try {
         if(appStruct.store.hasOwnProperty(req.params.node)) {
             if(!appStruct.store[req.params.node].hasOwnProperty(req.params.key)) {
@@ -270,7 +300,7 @@ appl.post('/api/store/:node/:key', function(req,res) {
 //----------- DELETE
 
 // Delete node
-appl.delete('/api/store/:node', function(req,res) {
+appl.delete('/api/store/:node', auth, function(req,res) {
     try {
         if(appStruct.store.hasOwnProperty(req.params.node)) {
             delete appStruct.store[req.params.node];
@@ -286,7 +316,7 @@ appl.delete('/api/store/:node', function(req,res) {
 });
 
 // Delete key
-appl.delete('/api/store/:node/:key', function(req,res) {
+appl.delete('/api/store/:node/:key', auth, function(req,res) {
     try {
         if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty([req.params.key])) {
             delete appStruct.store[req.params.node][req.params.key];
@@ -303,7 +333,7 @@ appl.delete('/api/store/:node/:key', function(req,res) {
 
 
 //----------- UPDATE
-appl.put('/api/store/:node/:key', function(req,res) {
+appl.put('/api/store/:node/:key', auth, function(req,res) {
     if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty([req.params.key])) {
         if(typeof req.body.value != 'object' && typeof req.body.value != 'function' && typeof req.body.value != 'symbol') {
             var datajson = IsJsonString(req.body.value);
@@ -343,6 +373,17 @@ function loadStore() {
             appStruct.store = JSON.parse(data);
             appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
             log('NFO','Store loaded from store.json file.');
+        }
+    }); 
+}
+
+function loadCredentials() {
+    fs.readFile('credentials.json', (err, data) => {
+        if (err) {
+            log('ERR','Can\'t load credentials.json file, default credentials will be used.');
+        } else {
+            appStruct.credentials = JSON.parse(data);
+            log('NFO','Credentials loaded from credentials.json file.');
         }
     }); 
 }
@@ -413,6 +454,7 @@ function IsJsonString(str) {
 
 //----------------------------------------- GO!!
 log('NFO','Starting...');
+loadCredentials();
 loadStore();
 
 //----------- STARTS DISCOVERY
