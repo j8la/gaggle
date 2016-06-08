@@ -14,7 +14,8 @@ RUN npm install argparse \
 && npm install host-discovery \
 && npm install ip \
 && npm install node-rest-client \
-&& npm install basic-auth
+&& npm install basic-auth \
+&& chmod 540 gpass
 
 VOLUME /gaggle
 

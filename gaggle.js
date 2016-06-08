@@ -1,7 +1,7 @@
 /*
 Name    : gaggle.js
 Author  : Julien Blanc
-Version : 0.5.0
+Version : 0.5.1
 Date    : 07/06/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
@@ -82,7 +82,7 @@ var auth = function (req, res, next) {
     
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '0.5.0',
+    version: '0.5.1',
     addHelp: true,
     description: 'Gaggle distributed configuration service.'
 })
@@ -130,18 +130,6 @@ var htds = new hstd({
     protocol: 'udp4',                       
     port: 2900                              
 });
-
-
-//----------------------------------------- REST API CLIENT INSTANCE
-var recl_options = {
-    user: appStruct.credentials.user,
-    password: appStruct.credentials.password,
-    connection: {
-        rejectUnauthorized: false
-	}
-}
-
-var recl = new nrcl(recl_options);       // Rest API client
 
 
 //----------------------------------------- REST API
@@ -378,14 +366,12 @@ function loadStore() {
 }
 
 function loadCredentials() {
-    fs.readFile('credentials.json', (err, data) => {
-        if (err) {
-            log('ERR','Can\'t load credentials.json file, default credentials will be used.');
-        } else {
-            appStruct.credentials = JSON.parse(data);
-            log('NFO','Credentials loaded from credentials.json file.');
-        }
-    }); 
+    try {
+        appStruct.credentials = JSON.parse(fs.readFileSync('credentials.json','utf8'));
+        log('NFO','Credentials loaded from credentials.json file.');
+    } catch(e) {
+        log('ERR','Can\'t load credentials.json file, default credentials will be used.');
+    }
 }
 
 
@@ -457,6 +443,19 @@ log('NFO','Starting...');
 loadCredentials();
 loadStore();
 
+
+//----------- REST API CLIENT INSTANCE
+var recl_options = {
+    user: appStruct.credentials.user,
+    password: appStruct.credentials.password,
+    connection: {
+        rejectUnauthorized: false
+	}
+}
+
+var recl = new nrcl(recl_options);
+
+
 //----------- STARTS DISCOVERY
 try {
     htds.start();
@@ -464,6 +463,7 @@ try {
 } catch(e) {
     log('ERR','Host Discovery module Discovery can\'t start.');
 }
+
 
 //----------- GET STORE FORM OTHER HOST IF I'M NOT ALONE
 setTimeout(function(){

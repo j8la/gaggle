@@ -1,7 +1,7 @@
 {
   "name": "gaggle",
-  "version": "0.5.0",
-  "description": "Gaggle is a distributed configuration service that works with multicast discovery.",
+  "version": "0.5.1",
+  "description": "Gaggle is a distributed store service that works with multicast discovery.",
   "main": "gaggle.js",
   "author": "Julien Blanc",
   "license": "GPL-3.0",
@@ -10,6 +10,5 @@
     "url": "git+https://github.com/j8la/gaggle.git"
   },
   "dependencies": {
-    "basic-auth": "^1.0.4"
   }
 }
