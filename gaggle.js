@@ -1,8 +1,8 @@
 /*
 Name    : gaggle.js
 Author  : Julien Blanc
-Version : 0.5.1
-Date    : 07/06/2016
+Version : 0.7.0
+Date    : 13/06/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
 
@@ -96,7 +96,24 @@ parser.addArgument(
     }
 )
 
+parser.addArgument(
+    ['-d', '--dev'],
+    { 
+        help: 'Development options.',
+        required: false,
+        metavar: 'OPT'
+    }
+)
+
 var args = parser.parseArgs();
+
+
+//----------------------------------------- DEV OPTIONS
+var norepl = false;
+
+if(args.dev == 'norepl') {
+    norepl = true;
+}
 
 
 //----------------------------------------- APP STRUCTURE
@@ -113,11 +130,13 @@ var appStruct = {
         version: os.release(),
         arch: os.arch(),
         ouptime: null,
-        checksum: null
+        checksum: null,
+        isolated: false
     },
     config: {
         clusterId: args.cluster,
-        members: []
+        members: [],
+        blacklist: []
     },
     log: [],
     store: {}
@@ -130,6 +149,334 @@ var htds = new hstd({
     protocol: 'udp4',                       
     port: 2900                              
 });
+
+
+//----------------------------------------- FUNCTIONS
+
+//----------- Push update to cluster members
+function pushUpdate(body, path, method) {
+
+    if(!body.from) {
+
+        var args = {
+            data: { 
+                from: ip.address(),
+                checksum: appStruct.status.checksum 
+            },
+            headers: { "Content-Type": "application/json" }
+        }
+
+        for(var x in appStruct.config.members) {
+
+            if(appStruct.config.members[x].address != ip.address()) {
+
+                if(appStruct.config.blacklist.indexOf(appStruct.config.members[x].address) == -1) {
+
+                    if(norepl == false) {
+
+                        var errMsg  = appStruct.config.members[x].address + ' is unreachable. The updating of the remote host failed.';
+                        var uri     = 'https://' + appStruct.config.members[x].address + ':8000' + path;
+
+                        switch(method) {
+                            case 'POST' :
+                                recl.post(uri, args, function(data,res) {}).on('error', function(err) { 
+                                    log('ERR', errMsg); 
+                                });
+                                break;
+                            case 'DELETE' :
+                                recl.delete(uri, args, function(data,res) {}).on('error', function(err) { 
+                                    log('ERR', errMsg); 
+                                });
+                                break;
+                            case 'UPDATE' :
+                                args.data.value = body.value;
+                                recl.put(uri, args, function(data,res) {}).on('error', function(err) { 
+                                    log('ERR', errMsg); 
+                                });
+                                break;
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    } else {
+
+        if(body.checksum != appStruct.status.checksum) {
+            log('ERR','Checksum error, the update has failed (' + method + ').');
+            updateRemoteBlacklist('ADD',ip.address());
+            appStruct.status.isolated = true;
+            log('ERR','This instance is now isolated from cluster.');
+            log('NFO', 'Try to resync the store.');
+        } else {
+            appStruct.status.isolated = false;
+            log('NFO', body.from + ' has pushed an update (' + method + ') with success.');
+        }
+
+    }
+
+}
+
+
+//----------- Treatment of received updates
+function treatUpdate(params,body,path,method) {
+
+    if(method == 'POST') {
+
+        pathLength = path.split("/").length;
+
+        switch (pathLength) {
+            case 4 :
+                appStruct.store[params.node] = {};
+                break;
+            case 5 :
+                appStruct.store[params.node][params.key] = '';
+                break;
+        }   
+
+    }
+
+    if(method == 'UPDATE') {
+
+        var datajson = IsJsonString(body.value);
+
+        if(datajson != null) {
+            appStruct.store[params.node][params.key] = datajson;
+        } else {
+            appStruct.store[params.node][params.key] = body.value; 
+        }
+
+    }
+
+    if(method == 'DELETE') {
+
+        pathLength = path.split("/").length;
+
+        switch (pathLength) {
+            case 4 :
+                delete appStruct.store[params.node];
+                break;
+            case 5 :
+                delete appStruct.store[params.node][params.key];
+                break;
+        }
+
+    }
+
+    checksumCalculation();
+    writeStore();
+    pushUpdate(body,path,method);
+
+}
+
+
+//----------- Checksum
+function getHash(str) {
+    return crypt
+        .createHash('md5')
+        .update(str, 'utf8')
+        .digest('hex')
+}
+
+
+//----------- Calculate the store checksum
+function checksumCalculation() {
+    appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
+}
+
+
+//----------- Sync store
+function syncStore(hosts) {
+
+    var isUpdated = false;
+    
+    for(var host in hosts) {
+        
+        if(host != ip.address() && appStruct.config.blacklist.indexOf(host) == -1) {
+            
+            if(isUpdated == true) {
+                
+                break;
+                
+            } else {
+                
+                log('NFO','Updating store from an existing host...');
+                
+                recl.get("https://" + host + ":8000/api/status/checksum", function(data,res) {
+                    
+                    var rc = data;
+                    
+                    if(appStruct.status.checksum != rc) {
+                    
+                        recl.get("https://" + host + ":8000/api/store", function(data,res) {
+                            
+                            var buffer = data;
+                            var lc = getHash(JSON.stringify(buffer));
+                            
+                            if(lc == rc) {
+                                appStruct.store = data;
+                                appStruct.status.checksum = lc;
+                                log('NFO','The store is updated from ' + host + '.');
+                                writeStore();
+                                isUpdated = true;
+                                if(appStruct.status.isolated == true) {
+                                    updateRemoteBlacklist('DEL',ip.address());
+                                    appStruct.status.isolated = false;
+                                }
+                            } else {
+                                log('ERR','Checksum error, the store can\'t be updated.');
+                                updateRemoteBlacklist('ADD',ip.address());
+                                appStruct.status.isolated = true;
+                                log('ERR','This instance is now isolated from cluster.');
+                                log('NFO', 'Try to resync the store.');
+                            }
+                            
+                            buffer = null;
+                            lc = null;
+                            
+                        }).on('error', function(err) {
+                            log('WAR', host + ' is starting at the same time.');
+                        })
+                        
+                    } else {
+                        log('NFO','The store is already up to date.');
+                    }
+                    
+                }).on('error', function(err) { 
+                    log('ERR', host + ' is unreachable. Can\'t get checksum and update store.'); 
+                });
+                    
+            }
+            
+        }
+         
+    }
+
+}
+
+
+//----------- Write store
+function writeStore() {
+    fs.writeFile('store.json', JSON.stringify(appStruct.store, null, 4), (err) => {
+        if (err) {
+            log('ERR','Can\'t write to store.json file.');
+        } else {
+            log('NFO','Store saved to store.json file.');
+        }
+    });
+}
+
+
+//----------- Load store
+function loadStore() {
+    fs.readFile('store.json', (err, data) => {
+        if (err) {
+            log('ERR','Can\'t load store.json file.');
+        } else {
+            appStruct.store = JSON.parse(data);
+            appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
+            log('NFO','Store loaded from store.json file.');
+        }
+    }); 
+}
+
+
+//----------- Load credentials
+function loadCredentials() {
+    try {
+        appStruct.credentials = JSON.parse(fs.readFileSync('credentials.json','utf8'));
+        log('NFO','Credentials loaded from credentials.json file.');
+    } catch(e) {
+        log('ERR','Can\'t load credentials.json file, default credentials will be used.');
+    }
+}
+
+
+//----------- Refresh members
+function refreshMembers() {
+    
+    var tmp = htds.hosts();
+    appStruct.config.members = [];
+    
+    for(var entry in tmp) {
+        appStruct.config.members.push(tmp[entry]);
+    }
+    
+}
+
+
+//----------- Add member to blacklist (when checksum error)
+function addToBlacklist(address) {
+    appStruct.config.blacklist.push(address);
+    log('WAR', address + ' is now isolated from cluster.');
+}
+
+
+//----------- Remove member from blacklist
+function rmFromBlacklist(address) {
+    appStruct.config.blacklist.splice(appStruct.config.blacklist.indexOf(address),1);
+    log('NFO', address + ' is back in the cluster.');
+}
+
+
+//----------- Update remote blacklist
+function updateRemoteBlacklist(method,address) {
+
+    var tmp = htds.hosts();
+    var uri = null;
+
+    for(var entry in tmp) {
+
+        if(entry != ip.address()) {
+
+            switch(method) {
+                case 'ADD' :
+                    uri  = 'https://' + entry + ':8000' + '/api/config/blacklist/add/' + address;
+                    break;
+                case 'DEL' :
+                    uri  = 'https://' + entry + ':8000' + '/api/config/blacklist/del/' + address;
+                    break;
+            }
+
+            recl.post(uri, args, function(data,res) {}).on('error', function(err) { 
+                log('ERR', "Can\'t update remote blacklist (" + entry + "). You should stop this instance!"); 
+            });
+
+        }
+
+    }
+
+}
+
+
+//----------- Log
+function log(type,msg) {
+    
+    if(appStruct.log.length > 20) {
+        appStruct.log.splice(0,1);
+    }
+    
+    appStruct.log.push({date:Date.now(),type:type,msg:msg});
+    
+}
+
+
+//----------- Test & returns JSON
+function IsJsonString(str) {
+    
+    var json = null;
+    
+    try {
+        json = JSON.parse(str);
+    } catch (e) {
+    }
+    
+    return json;
+}
 
 
 //----------------------------------------- REST API
@@ -178,67 +525,7 @@ appl.get('/api/store/:node/:key', auth, function(req,res) {
 });
 
 
-//----------- Function refresh store
-function refreshStore() {
-    
-    appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
-    
-    for(var x in appStruct.config.members) {
-        if(appStruct.config.members[x].address != ip.address()) {
-            var args = {
-                data: { 
-                    address: ip.address(), 
-                    checksum: appStruct.status.checksum 
-                },
-                headers: { "Content-Type": "application/json" }
-            }
-            recl.post('https://' + appStruct.config.members[x].address + ':8000/api/store/refresh', args, function(data,res) {
-                //log('NFO', 'A notification has been sent to ' + appStruct.config.members[x].address + '.');
-            }).on('error', function(err) { 
-                log('ERR', appStruct.config.members[x].address + ' is unreachable. The updating of the remote host failed.'); 
-            });
-        }
-    }
-    
-}
-
-
 //----------- POST
-
-// Refresh
-appl.post('/api/store/refresh', auth, function(req,res) {
-    
-    if(appStruct.status.checksum != req.body.checksum) {
-        
-        var rc = req.body.checksum;
-        
-        recl.get("https://" + req.body.address + ":8000/api/store", function(data,res) {
-            
-            var buffer = data;
-            var lc = getHash(JSON.stringify(buffer));
-            
-            if(lc == rc) {
-                appStruct.store = buffer;
-                appStruct.status.checksum = lc;
-                log('NFO','The store has been updated from ' + req.body.address + '.');
-                writeStore();
-            } else {
-                log('ERR','An update has been detected from ' + req.body.address + ' but the store has not been updated. Checksum error.');
-            }
-            
-            buffer = null;
-            lc = null;
-            
-            
-        }).on('error', function(err) { 
-            log('ERR','An update has been detected from ' + req.body.address + ' but the store has not been updated.'); 
-        });
-        
-    }
-    
-    res.sendStatus(200);
-    
-});
 
 // Create node
 appl.post('/api/store/:node', auth, function(req,res) {
@@ -247,9 +534,7 @@ appl.post('/api/store/:node', auth, function(req,res) {
             res.sendStatus(409);
         } else {
             if(typeof req.params.node == 'string') {
-                appStruct.store[req.params.node] = {};
-                refreshStore();
-                writeStore();
+                treatUpdate(req.params,req.body,req.path,'POST');
                 res.sendStatus(201);
             } else {
                 res.sendStatus(400);
@@ -260,15 +545,14 @@ appl.post('/api/store/:node', auth, function(req,res) {
     }
 });
 
+
 // Create key
 appl.post('/api/store/:node/:key', auth, function(req,res) {
     try {
         if(appStruct.store.hasOwnProperty(req.params.node)) {
             if(!appStruct.store[req.params.node].hasOwnProperty(req.params.key)) {
                 if(typeof req.params.key == 'string') {
-                    appStruct.store[req.params.node][req.params.key] = '';
-                    refreshStore();
-                    writeStore();
+                    treatUpdate(req.params,req.body,req.path,'POST');
                     res.sendStatus(201);
                 } else {
                     res.sendStatus(400);
@@ -285,15 +569,35 @@ appl.post('/api/store/:node/:key', auth, function(req,res) {
 });
 
 
+// Add member to blacklist
+appl.post('/api/config/blacklist/add/:addr', auth, function(req,res) {
+    try {
+        addToBlacklist(req.params.addr);
+        res.sendStatus(200);
+    } catch(e) {
+        res.sendStatus(404);
+    }
+});
+
+
+// Remove member from blacklist
+appl.post('/api/config/blacklist/del/:addr', auth, function(req,res) {
+    try {
+        rmFromBlacklist(req.params.addr);
+        res.sendStatus(200);
+    } catch(e) {
+        res.sendStatus(404);
+    }
+});
+
+
 //----------- DELETE
 
 // Delete node
 appl.delete('/api/store/:node', auth, function(req,res) {
     try {
         if(appStruct.store.hasOwnProperty(req.params.node)) {
-            delete appStruct.store[req.params.node];
-            refreshStore();
-            writeStore();
+            treatUpdate(req.params,req.body,req.path,'DELETE');
             res.sendStatus(200);
         } else {
             res.sendStatus(404);
@@ -303,13 +607,12 @@ appl.delete('/api/store/:node', auth, function(req,res) {
     }
 });
 
+
 // Delete key
 appl.delete('/api/store/:node/:key', auth, function(req,res) {
     try {
         if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty([req.params.key])) {
-            delete appStruct.store[req.params.node][req.params.key];
-            refreshStore();
-            writeStore();
+            treatUpdate(req.params,req.body,req.path,'DELETE');
             res.sendStatus(200);
         } else {
             res.sendStatus(404);
@@ -321,17 +624,12 @@ appl.delete('/api/store/:node/:key', auth, function(req,res) {
 
 
 //----------- UPDATE
+
+// Update key
 appl.put('/api/store/:node/:key', auth, function(req,res) {
     if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty([req.params.key])) {
         if(typeof req.body.value != 'object' && typeof req.body.value != 'function' && typeof req.body.value != 'symbol') {
-            var datajson = IsJsonString(req.body.value);
-            if(datajson != null) {
-                appStruct.store[req.params.node][req.params.key] = datajson;
-            } else {
-                appStruct.store[req.params.node][req.params.key] = req.body.value; 
-            }
-            refreshStore();
-            writeStore();
+            treatUpdate(req.params,req.body,req.path,'UPDATE')
             res.sendStatus(200);
         } else {
             res.sendStatus(400);
@@ -342,78 +640,25 @@ appl.put('/api/store/:node/:key', auth, function(req,res) {
 });
 
 
-//----------------------------------------- FILE OPERATIONS
-function writeStore() {
-    fs.writeFile('store.json', JSON.stringify(appStruct.store, null, 4), (err) => {
-        if (err) {
-            log('ERR','Can\'t write to store.json file.');
-        } else {
-            log('NFO','Store saved to store.json file.');
-        }
-    });
-}
+//----------- PATCH
 
-function loadStore() {
-    fs.readFile('store.json', (err, data) => {
-        if (err) {
-            log('ERR','Can\'t load store.json file.');
-        } else {
-            appStruct.store = JSON.parse(data);
-            appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
-            log('NFO','Store loaded from store.json file.');
-        }
-    }); 
-}
-
-function loadCredentials() {
-    try {
-        appStruct.credentials = JSON.parse(fs.readFileSync('credentials.json','utf8'));
-        log('NFO','Credentials loaded from credentials.json file.');
-    } catch(e) {
-        log('ERR','Can\'t load credentials.json file, default credentials will be used.');
-    }
-}
+// Synchronize store
+appl.patch('/api/store/sync', auth, function(req,res) {
+    syncStore(htds.hosts());
+    res.sendStatus(200);
+});
 
 
 //----------------------------------------- HOST DISCOVERY 
 
-//----------- Function refresh members
-function refreshMembers() {
-    
-    var tmp = htds.hosts();
-    appStruct.config.members = [];
-    
-    for(var entry in tmp) {
-        appStruct.config.members.push(tmp[entry]);
-    }
-    
-}
-
-
 //----------- Events 
 htds.on('join', (addr) => { refreshMembers(); });
-htds.on('leave', (addr) => { refreshMembers(); });
-
-
-//----------------------------------------- LOG
-function log(type,msg) {
-    
-    if(appStruct.log.length > 20) {
-        appStruct.log.splice(0,1);
+htds.on('leave', (addr) => { 
+    refreshMembers(); 
+    if(appStruct.config.blacklist.indexOf(addr) != -1) {
+        rmFromBlacklist(addr);
     }
-    
-    appStruct.log.push({date:Date.now(),type:type,msg:msg});
-    
-}
-
-
-//----------------------------------------- CHECKSUM
-function getHash(str) {
-    return crypt
-        .createHash('md5')
-        .update(str, 'utf8')
-        .digest('hex')
-}
+});
 
 
 //----------------------------------------- PROCESS EVENTS
@@ -422,20 +667,6 @@ process.on('SIGTERM', function() {
     htds.stop();
     process.exit(0);
 })
-
-
-//----------------------------------------- TEST & RETURNS JSON
-function IsJsonString(str) {
-    
-    var json = null;
-    
-    try {
-        json = JSON.parse(str);
-    } catch (e) {
-    }
-    
-    return json;
-}
 
 
 //----------------------------------------- GO!!
@@ -468,63 +699,7 @@ try {
 //----------- GET STORE FORM OTHER HOST IF I'M NOT ALONE
 setTimeout(function(){
     
-    var tmp = htds.hosts();
-    var isUpdated = false;
-    
-    for(var entry in tmp) {
-        
-        if(entry != ip.address()) {
-            
-            if(isUpdated == true) {
-                
-                break;
-                
-            } else {
-                
-                log('NFO','Updating store from an existing host...');
-                
-                recl.get("https://" + entry + ":8000/api/status/checksum", function(data,res) {
-                    
-                    var rc = data;
-                    
-                    if(appStruct.status.checksum != rc) {
-                    
-                        recl.get("https://" + entry + ":8000/api/store", function(data,res) {
-                            
-                            var buffer = data;
-                            var lc = getHash(JSON.stringify(buffer));
-                            
-                            if(lc == rc) {
-                                appStruct.store = data;
-                                appStruct.status.checksum = lc;
-                                log('NFO','The store is updated from ' + entry + '.');
-                                writeStore();
-                                isUpdated = true;
-                            } else {
-                                log('ERR','The store can\'t be updated.');
-                            }
-                            
-                            buffer = null;
-                            lc = null;
-                            
-                        }).on('error', function(err) {
-                            log('WAR', entry + ' is starting at the same time.');
-                        })
-                        
-                    } else {
-                        log('NFO','The store is already up to date.');
-                    }
-                    
-                }).on('error', function(err) { 
-                    log('ERR', entry + ' is unreachable. Can\'t get checksum and update store.'); 
-                });
-                    
-            }
-            
-        }
-         
-    }
-    
+    syncStore(htds.hosts());
     
     //----------- EXPRESS LISTENING
     wsrv.listen(8000);
