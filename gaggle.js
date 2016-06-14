@@ -375,7 +375,7 @@ function writeStore() {
 function loadStore() {
     fs.readFile('store.json', (err, data) => {
         if (err) {
-            log('ERR','Can\'t load store.json file.');
+            log('WAR','Can\'t load store.json file (First run?).');
         } else {
             appStruct.store = JSON.parse(data);
             appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
