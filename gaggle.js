@@ -1,7 +1,7 @@
 /*
 Name    : gaggle.js
 Author  : Julien Blanc
-Version : 0.7.0
+Version : 0.7.1
 Date    : 13/06/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
@@ -82,7 +82,7 @@ var auth = function (req, res, next) {
     
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '0.5.1',
+    version: '0.7.1',
     addHelp: true,
     description: 'Gaggle distributed configuration service.'
 })
@@ -130,7 +130,7 @@ var appStruct = {
         version: os.release(),
         arch: os.arch(),
         ouptime: null,
-        checksum: null,
+        checksum: "0",
         isolated: false
     },
     config: {
@@ -696,9 +696,10 @@ try {
 }
 
 
-//----------- GET STORE FORM OTHER HOST IF I'M NOT ALONE
+//----------- WAIT 6s FOR DISCOVERY TO RETRIEVES HOST LIST
 setTimeout(function(){
     
+    //----------- AFTER 6s, SYNC THE STORE FROM OTHER HOST
     syncStore(htds.hosts());
     
     //----------- EXPRESS LISTENING
