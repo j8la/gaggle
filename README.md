@@ -25,6 +25,8 @@ Multicast and Docker are problematic for now, so only one Gaggle instance must b
 
 Good news, Gaggle Docker container and multicast are working perfectly with [Weave Net](https://www.weave.works/products/weave-net/). In this case, you must use **--net=weave**. This configuration is described in the wiki documentation. 
 
+![WeaveNet](https://qu3paw-bn1306.files.1drv.com/y3m_Vmjh3psS5rAqOiQW778m_GHDsGUkmlhdE8gxKJBhRcNQiR4StJFfwqjZ7yoktoSczdFTpm1ZfTxc6y1I_WPxPc6BiQKMpfL8FNY_zySPDQQt0Q7Ju88u_YD1c-pwlDGwaIzL03B6K0yqXUdT-hvvg?width=500&height=376&cropmode=none)
+
 ### [Store](#store)
 The store is structured, for now, as follows :
 
