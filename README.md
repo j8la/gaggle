@@ -1,4 +1,4 @@
-Gaggle
+![Gaggle](http://files.gandi.ws/gandi75827/image/gaggleb.png)
 =====
 
 ## Menu
@@ -10,7 +10,7 @@ Gaggle
 =====
 
 ### [Introduction](#introduction)
-Gaggle is a Node JS application that aims to maintain a distributed configuration store on the network and is specially designed to working in Docker containers. Gaggle finds each instance on the network with multicast discovery system and builds a list, the cluster, that will be used to update or replicate the store. 
+Gaggle is a Node JS application that aims to maintain a distributed configuration store in JSON format, on the network, and is specially designed to working in Docker containers. Gaggle finds each instance on the network with multicast discovery system and builds a list, the cluster, that will be used to update or replicate the store.  
 
 Gaggle provides, on each instance, a REST API to update the store, serve datas, check the status, get members ... Apart from multicast discovery, communication between each instance is realized through the REST API.
 
