@@ -1,0 +1,15 @@
+#!/bin/bash
+
+red=$'\e[1;31m'
+grn=$'\e[1;32m'
+yel=$'\e[1;33m'
+end=$'\e[0m'
+
+printf "${red}This password must be set on each Manada instance!${end}\n"
+read -p "Manada user: " gUser
+read -s -p "Manada password: " gPassword
+printf '{"user":"%s","password":"%s"}\n' "$gUser" "$gPassword" > credentials.json
+printf "\n${yel}Manada password saved, you must restart your container.${end}\n"
+ 
+ 
+

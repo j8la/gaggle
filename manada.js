@@ -1,7 +1,7 @@
 /*
-Name    : gaggle.js
+Name    : manada.js
 Author  : Julien Blanc
-Version : 0.7.1
+Version : 0.7.2
 Date    : 13/06/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
@@ -82,9 +82,9 @@ var auth = function (req, res, next) {
     
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '0.7.1',
+    version: '0.7.2',
     addHelp: true,
-    description: 'Gaggle distributed configuration service.'
+    description: 'Manada distributed configuration service.'
 })
 
 parser.addArgument(

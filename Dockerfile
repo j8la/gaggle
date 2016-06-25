@@ -4,9 +4,9 @@ MAINTAINER Julien Blanc <jbla@tuta.io>
 
 EXPOSE 2900/udp 8000
 
-WORKDIR /gaggle
+WORKDIR /manada
 
-COPY . /gaggle/
+COPY . /manada/
 
 RUN npm install argparse \
 && npm install body-parser \
@@ -15,9 +15,9 @@ RUN npm install argparse \
 && npm install ip \
 && npm install node-rest-client \
 && npm install basic-auth \
-&& chmod 540 gpass
+&& chmod 540 mpass
 
-VOLUME /gaggle
+VOLUME /manada
 
-ENTRYPOINT ["node", "gaggle.js", "-c"]
-CMD ["gaggle"] 
+ENTRYPOINT ["node", "manada.js", "-c"]
+CMD ["manada"] 
