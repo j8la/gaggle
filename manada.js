@@ -1,8 +1,8 @@
 /*
 Name    : manada.js
 Author  : Julien Blanc
-Version : 0.7.2
-Date    : 13/06/2016
+Version : 0.7.3
+Date    : 27/06/2016
 NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
 */
 
@@ -33,6 +33,7 @@ var hstd    = require('host-discovery');
 var argp    = require('argparse').ArgumentParser;
 var nrcl    = require('node-rest-client').Client;
 var baut    = require('basic-auth');
+var asyn    = require('async');
 
 
 //------ Node modules
@@ -82,7 +83,7 @@ var auth = function (req, res, next) {
     
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '0.7.2',
+    version: '0.7.3',
     addHelp: true,
     description: 'Manada distributed configuration service.'
 })
@@ -292,69 +293,105 @@ function checksumCalculation() {
 //----------- Sync store
 function syncStore(hosts) {
 
-    var isUpdated = false;
-    
-    for(var host in hosts) {
-        
-        if(host != ip.address() && appStruct.config.blacklist.indexOf(host) == -1) {
+    log('NFO','Updating store from an existing host...');
+
+    var addresses = [];
+    var asyncTasks = [];
+
+    for(var host in hosts) { addresses.push(hosts[host].address); }
+
+    asyncTasks.push(function(callback) { callback(null, false); });
+
+    addresses.forEach(function(addr) {
+
+        asyncTasks.push(function(arg, callback) {           
             
-            if(isUpdated == true) {
-                
-                break;
-                
+            if(arg == true) { 
+
+                callback(null, true); 
+
             } else {
-                
-                log('NFO','Updating store from an existing host...');
-                
-                recl.get("https://" + host + ":8000/api/status/checksum", function(data,res) {
                     
-                    var rc = data;
-                    
-                    if(appStruct.status.checksum != rc) {
-                    
-                        recl.get("https://" + host + ":8000/api/store", function(data,res) {
-                            
-                            var buffer = data;
-                            var lc = getHash(JSON.stringify(buffer));
-                            
-                            if(lc == rc) {
-                                appStruct.store = data;
-                                appStruct.status.checksum = lc;
-                                log('NFO','The store is updated from ' + host + '.');
-                                writeStore();
-                                isUpdated = true;
-                                if(appStruct.status.isolated == true) {
-                                    updateRemoteBlacklist('DEL',ip.address());
-                                    appStruct.status.isolated = false;
+                if(addr != ip.address() && appStruct.config.blacklist.indexOf(addr) == -1) {
+
+                    recl.get("https://" + addr + ":8000/api/status/checksum", function(data1,res) {
+
+                        var rc = data1.toString('utf8');
+
+                        if(appStruct.status.checksum != rc) {
+
+                            recl.get("https://" + addr + ":8000/api/store", function(data2,res) {
+
+                                var buffer = data2;
+                                var lc = getHash(JSON.stringify(buffer));
+                                
+                                if(lc == rc) {
+
+                                    appStruct.store = data2;
+                                    appStruct.status.checksum = lc;
+
+                                    log('NFO','The store is updated from ' + addr + '.');
+
+                                    writeStore();
+
+                                    if(appStruct.status.isolated == true) {
+                                        updateRemoteBlacklist('DEL', ip.address());
+                                        appStruct.status.isolated = false;
+                                    }
+
+                                    buffer = null;
+                                    lc = null;
+
+                                    callback(null, true);
+
+                                } else {
+
+                                    log('ERR','Checksum error, the store can\'t be updated.');
+
+                                    updateRemoteBlacklist('ADD',ip.address());
+                                    appStruct.status.isolated = true;
+
+                                    log('ERR','This instance is now isolated from cluster.');
+                                    log('WAR', 'Try to force to resync the store if other attempts have failed.');
+
+                                    buffer = null;
+                                    lc = null;
+
+                                    callback(null, false);
                                 }
-                            } else {
-                                log('ERR','Checksum error, the store can\'t be updated.');
-                                updateRemoteBlacklist('ADD',ip.address());
-                                appStruct.status.isolated = true;
-                                log('ERR','This instance is now isolated from cluster.');
-                                log('NFO', 'Try to resync the store.');
-                            }
                             
-                            buffer = null;
-                            lc = null;
-                            
-                        }).on('error', function(err) {
-                            log('WAR', host + ' is starting at the same time.');
-                        })
-                        
-                    } else {
-                        log('NFO','The store is already up to date.');
-                    }
-                    
-                }).on('error', function(err) { 
-                    log('ERR', host + ' is unreachable. Can\'t get checksum and update store.'); 
-                });
-                    
+                            }).on('error', function(err) {
+                                log('WAR', addr + ' is not ready to give access to data.');
+                                callback(null, false);
+                            });
+
+                        } else {
+                            log('NFO','The store is already up to date.');
+                            callback(null, true);
+                        }
+
+                    }).on('error', function(err) { 
+                        log('ERR', addr + ' is unreachable. Can\'t get checksum and update store.');
+                        callback(null, false); 
+                    });
+
+                } else {
+                    callback(null, false);
+                };
+
             }
-            
+
+        });
+
+    });
+
+    asyn.waterfall(asyncTasks, function(err,result) {
+        if(result == true) {
+            log('NFO','Synchronization successful.');
+        } else {
+            log('ERR','Synchronization failed.');
         }
-         
-    }
+    });
 
 }
 
@@ -666,7 +703,7 @@ process.on('SIGTERM', function() {
     wsrv.close({});
     htds.stop();
     process.exit(0);
-})
+});
 
 
 //----------------------------------------- GO!!

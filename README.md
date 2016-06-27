@@ -1,5 +1,6 @@
 ![Manada](http://files.gandi.ws/gandi76242/image/logo_full.png)
 =====
+[![GitHub version](https://badge.fury.io/gh/j8la%2Fmanada.png)](https://badge.fury.io/gh/j8la%2Fmanada)
 
 ## Menu
 - [Introduction](#introduction)

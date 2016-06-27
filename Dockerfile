@@ -1,4 +1,4 @@
-FROM node:5.11.1
+FROM node:6.2.2
 
 MAINTAINER Julien Blanc <jbla@tuta.io>
 
@@ -15,6 +15,7 @@ RUN npm install argparse \
 && npm install ip \
 && npm install node-rest-client \
 && npm install basic-auth \
+&& npm install async \
 && chmod 540 mpass
 
 VOLUME /manada
