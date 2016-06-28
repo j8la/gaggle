@@ -386,10 +386,14 @@ function syncStore(hosts) {
     });
 
     asyn.waterfall(asyncTasks, function(err,result) {
-        if(result == true) {
-            log('NFO','Synchronization successful.');
+        if(appStruct.status.checksum != "0") {
+            if(result == true) {
+                log('NFO','Synchronization successful.');
+            } else {
+                log('ERR','Synchronization failed.');
+            }
         } else {
-            log('ERR','Synchronization failed.');
+            log('NFO','Nothing to synchronize. The store is empty because it is the first start.');
         }
     });
 
@@ -412,7 +416,7 @@ function writeStore() {
 function loadStore() {
     fs.readFile('store.json', (err, data) => {
         if (err) {
-            log('WAR','Can\'t load store.json file (First run?).');
+            log('WAR','Can\'t load store.json file (First start?).');
         } else {
             appStruct.store = JSON.parse(data);
             appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
