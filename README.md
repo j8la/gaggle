@@ -1,6 +1,9 @@
 ![Manada](http://files.gandi.ws/gandi76242/image/logo_full.png)
 =====
-[![GitHub version](https://badge.fury.io/gh/j8la%2Fmanada.png)](https://badge.fury.io/gh/j8la%2Fmanada)
+[![GitHub release](https://img.shields.io/github/release/j8la/manada.svg)](https://github.com/j8la/manada)
+[![GitHub issues](https://img.shields.io/github/issues/j8la/manada.svg)](https://github.com/j8la/manada/issues)
+[![Docker Stars](https://img.shields.io/docker/pulls/jbla/manada.io.svg)](https://hub.docker.com/r/jbla/manada.io/)
+[![GitHub license](https://img.shields.io/badge/license-AGPL-red.svg)](https://raw.githubusercontent.com/j8la/manada/master/LICENSE)
 
 ## Menu
 - [Introduction](#introduction)
