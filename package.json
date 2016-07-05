@@ -1,6 +1,6 @@
 {
   "name": "manada",
-  "version": "0.7.3",
+  "version": "0.9.0",
   "description": "Manada is a distributed store service that works with multicast discovery.",
   "main": "manada.js",
   "author": "Julien Blanc",

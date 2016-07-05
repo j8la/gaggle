@@ -17,7 +17,9 @@ Manada provides, on each instance, a REST API to update the store, serve datas, 
 
 The REST API is provided over HTTPS only and has a HTTP basic authentication.
 
-![Manada Structure](http://resizer.gandi.ws/gandi76242/image/schema1b.png?w=500)
+Please note that new Manada releases, since the 0.9.0, are not compatible with earlier versions because the changes are too significant : new REST API, different provisioning mode, no more limits with JSON structure... This remark is also valid for the web client.
+
+![Manada scheme](http://resizer.gandi.ws/gandi76242/image/schema1b.png?w=500)
 
 ### [Network](#network)
 The 2900/UDP port is used for discovery and 8000/TCP port is used for REST API communication between instances and for client requests.
@@ -29,28 +31,11 @@ Good news, Manada Docker container and multicast are working perfectly with [Wea
 ![WeaveNet](http://resizer.gandi.ws/gandi76242/image/schema2b.png?w=500)
 
 ### [Store](#store)
-The store is structured, for now, as follows :
-
-![Manada Structure](https://zuvdyw-bn1306.files.1drv.com/y3mJ3m7DvU3oGnDDmn0jDwJLgr2XDp8-_h2H8hV3VjeT4ASfmhra9nUjVQHIoz91T97v3ukvjnpSDaqWttCPe4UNOD5czlDf-3mII0Plfyhrkh-Gm7ePgkzJ2Cl__g_EBSxiziU9YxjpkA2cQUHP4lb7Q?width=125&height=120&cropmode=none)
+The store is a JSON structure on which you have full control via the REST API. The only limitations you have are the JSON limitations.
 
 At each start, Manada loads its own store copy from a file and if another instance is found, updates it. The store datas are not read from file but from memory, the file is only used as backup.
 
 The store.json file is located in the folder where is executed Manada. If it does not exist, it is automatically created.
-
-The JSON file looks like this :
-```json
-{
-    "Node1": {
-        "key1": "My string value 1",
-        "key2": "My string value 2"
-    },
-    "Node2": {
-        "key1": "My another string value"
-    }
-}
-```
-
-A key can contain a JSON structure but you must escape special characters before insert. In this case, you have to manage the JSON structure in a key by yourself. Manada keeps control only at first level, you can't modify, for example, a sub node or a sub key via the Manada REST API.
 
 ### [Request and update the store](#request-and-update-the-store)
 Since 0.7.x version, you can read and write on each Manada instance. This became possible since an instance replicates only an object and no more entirely the store. 
