@@ -700,7 +700,7 @@ appl.post('/api/v2/store', auth, function(req,res) {
     var value       = permitVal(body.value);
 
     // Create a node
-    if(path !== null && node !== null && key === null && value === null && isValidString(node)) {
+    if(path !== null && node !== null && key === null && value === null && isValidString(node) && Object.keys(req.body).length == 2) {
         if(index(appStruct.store, path)[node]) {
             var result = 409;
         } else {
@@ -708,7 +708,7 @@ appl.post('/api/v2/store', auth, function(req,res) {
         }
 
     // Create a key:value pair
-    } else if(path !== null && node === null && key !== null && value !== null && isValidString(key)) {
+    } else if(path !== null && node === null && key !== null && value !== null && isValidString(key) && Object.keys(req.body).length == 3) {
         if(index(appStruct.store, path)[key]) {
             var result = 409;
         } else {
@@ -748,7 +748,7 @@ appl.put('/api/v2/store', auth, function(req,res) {
     var path        = permitVal(body.path);
     var value       = permitVal(body.value);
 
-    if(path != null && value != null) {
+    if(path != null && value != null & Object.keys(req.body).length == 2) {
 
         result = index(appStruct.store, path, value).statusCode;
         result ? (res.sendStatus(result)) : (
