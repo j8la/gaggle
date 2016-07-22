@@ -9,13 +9,13 @@ WORKDIR /manada
 COPY . /manada/
 
 RUN npm install argparse \
-&& npm install body-parser \
 && npm install express \
 && npm install host-discovery \
 && npm install ip \
 && npm install node-rest-client \
 && npm install basic-auth \
 && npm install async \
+&& npm install helmet \
 && chmod 540 mpass
 
 VOLUME /manada

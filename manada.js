@@ -1,9 +1,9 @@
 /*
 Name    : manada.js
 Author  : Julien Blanc
-Version : 0.7.3
-Date    : 27/06/2016
-NodeJS  : 5.11.1 / 6.1.0 / 6.2.0
+Version : 0.9.0
+Date    : 02/07/2016
+NodeJS  : 6.2.2
 */
 
 /*
@@ -28,27 +28,58 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 //------ External modules
 var expr    = require('express');
-var bdyp    = require('body-parser');
 var hstd    = require('host-discovery');
 var argp    = require('argparse').ArgumentParser;
 var nrcl    = require('node-rest-client').Client;
 var baut    = require('basic-auth');
 var asyn    = require('async');
-
+var helm    = require('helmet');
+var ip      = require('ip');
 
 //------ Node modules
 var fs      = require('fs');
-var ip      = require('ip');
 var os      = require('os');
 var crypt   = require('crypto');
 var https   = require('https');
 
 
 //----------------------------------------- EXPRESS CONFIG
-var appl = expr();                       
+var appl = expr();
 
-appl.use(bdyp.json());
-appl.use(bdyp.urlencoded({ extended: true }));
+//----------- Security
+appl.use(helm());                       
+
+//----------- Body parser
+appl.use( function (req, res, next) {  
+
+    if(req.method === 'POST' || req.method === 'PUT') {
+
+        if (req.headers['content-type'].toLowerCase() === 'application/json') {
+
+            if (!parseInt(req.headers['content-length'])) {
+                req.body = {};
+                next();
+            } else {
+                req.on('data', function (data) {
+                    try {
+                        req.body = JSON.parse(data.toString());
+                        next();
+                    } catch (e) {
+                        req.body = {};
+                        next();
+                    }
+                });
+            }
+
+        } else {
+            next();
+        }
+
+    } else {
+        next();
+    }
+
+ });
 
 
 //----------------------------------------- HTTPS Server
@@ -61,29 +92,29 @@ var wsrv = https.createServer({
 //----------------------------------------- SERVER AUTHENTICATION
 var auth = function (req, res, next) {
     
-  function unauthorized(res) {
-    res.set('WWW-Authenticate', 'Basic realm=Authorization Required');
-    return res.sendStatus(401);
-  };
+    function unauthorized(res) {
+        res.set('WWW-Authenticate', 'Basic realm=Authorization Required');
+        return res.sendStatus(401);
+    };
 
-  var user = baut(req);
+    var user = baut(req);
 
-  if (!user || !user.name || !user.pass) {
-    return unauthorized(res);
-  };
+    if (!user || !user.name || !user.pass) {
+        return unauthorized(res);
+    };
 
-  if (user.name === appStruct.credentials.user && user.pass === appStruct.credentials.password) {
-    return next();
-  } else {
-    return unauthorized(res);
-  };
+    if (user.name === appStruct.credentials.user && user.pass === appStruct.credentials.password) {
+        return next();
+    } else {
+        return unauthorized(res);
+    };
   
 };
 
     
 //----------------------------------------- ARGUMENTS
 var parser = new argp({
-    version: '0.7.3',
+    version: '0.9.0',
     addHelp: true,
     description: 'Manada distributed configuration service.'
 })
@@ -100,7 +131,7 @@ parser.addArgument(
 parser.addArgument(
     ['-d', '--dev'],
     { 
-        help: 'Development options.',
+        help: 'Disable replication when push datas. Only for testing.',
         required: false,
         metavar: 'OPT'
     }
@@ -154,141 +185,32 @@ var htds = new hstd({
 
 //----------------------------------------- FUNCTIONS
 
-//----------- Push update to cluster members
-function pushUpdate(body, path, method) {
-
-    if(!body.from) {
-
-        var args = {
-            data: { 
-                from: ip.address(),
-                checksum: appStruct.status.checksum 
-            },
-            headers: { "Content-Type": "application/json" }
-        }
-
-        for(var x in appStruct.config.members) {
-
-            if(appStruct.config.members[x].address != ip.address()) {
-
-                if(appStruct.config.blacklist.indexOf(appStruct.config.members[x].address) == -1) {
-
-                    if(norepl == false) {
-
-                        var errMsg  = appStruct.config.members[x].address + ' is unreachable. The updating of the remote host failed.';
-                        var uri     = 'https://' + appStruct.config.members[x].address + ':8000' + path;
-
-                        switch(method) {
-                            case 'POST' :
-                                recl.post(uri, args, function(data,res) {}).on('error', function(err) { 
-                                    log('ERR', errMsg); 
-                                });
-                                break;
-                            case 'DELETE' :
-                                recl.delete(uri, args, function(data,res) {}).on('error', function(err) { 
-                                    log('ERR', errMsg); 
-                                });
-                                break;
-                            case 'UPDATE' :
-                                args.data.value = body.value;
-                                recl.put(uri, args, function(data,res) {}).on('error', function(err) { 
-                                    log('ERR', errMsg); 
-                                });
-                                break;
-                        }
-
-                    }
-
-                }
-
-            }
-
-        }
-
-    } else {
-
-        if(body.checksum != appStruct.status.checksum) {
-            log('ERR','Checksum error, the update has failed (' + method + ').');
-            updateRemoteBlacklist('ADD',ip.address());
-            appStruct.status.isolated = true;
-            log('ERR','This instance is now isolated from cluster.');
-            log('NFO', 'Try to resync the store.');
-        } else {
-            appStruct.status.isolated = false;
-            log('NFO', body.from + ' has pushed an update (' + method + ') with success.');
-        }
-
-    }
-
-}
-
-
-//----------- Treatment of received updates
-function treatUpdate(params,body,path,method) {
-
-    if(method == 'POST') {
-
-        pathLength = path.split("/").length;
-
-        switch (pathLength) {
-            case 4 :
-                appStruct.store[params.node] = {};
-                break;
-            case 5 :
-                appStruct.store[params.node][params.key] = '';
-                break;
-        }   
-
-    }
-
-    if(method == 'UPDATE') {
-
-        var datajson = IsJsonString(body.value);
-
-        if(datajson != null) {
-            appStruct.store[params.node][params.key] = datajson;
-        } else {
-            appStruct.store[params.node][params.key] = body.value; 
-        }
-
-    }
-
-    if(method == 'DELETE') {
-
-        pathLength = path.split("/").length;
-
-        switch (pathLength) {
-            case 4 :
-                delete appStruct.store[params.node];
-                break;
-            case 5 :
-                delete appStruct.store[params.node][params.key];
-                break;
-        }
-
-    }
-
-    checksumCalculation();
-    writeStore();
-    pushUpdate(body,path,method);
-
-}
-
-
 //----------- Checksum
 function getHash(str) {
     return crypt
         .createHash('md5')
         .update(str, 'utf8')
-        .digest('hex')
+        .digest('hex');
 }
-
 
 //----------- Calculate the store checksum
 function checksumCalculation() {
     appStruct.status.checksum = getHash(JSON.stringify(appStruct.store));
 }
 
+//----------- Compare checksum
+function checksumCompare(from, extChecksum, method) {
+    if(extChecksum != appStruct.status.checksum) {
+        log('ERR','Checksum error, the update from ' + from + 'has failed (' + method + ').');
+        updateRemoteBlacklist('ADD',ip.address());
+        appStruct.status.isolated = true;
+        log('ERR', 'This instance is now isolated from cluster.');
+        log('NFO', 'Try to resync the store.');
+    } else {
+        appStruct.status.isolated = false;
+        log('NFO', from + ' has pushed an update (' + method + ') with success.');
+    }
+}
 
 //----------- Sync store
 function syncStore(hosts) {
@@ -314,13 +236,13 @@ function syncStore(hosts) {
                     
                 if(addr != ip.address() && appStruct.config.blacklist.indexOf(addr) == -1) {
 
-                    recl.get("https://" + addr + ":8000/api/status/checksum", function(data1,res) {
+                    recl.get("https://" + addr + ":8000/api/v2/status/checksum", function(data1,res) {
 
                         var rc = data1.toString('utf8');
 
                         if(appStruct.status.checksum != rc) {
 
-                            recl.get("https://" + addr + ":8000/api/store", function(data2,res) {
+                            recl.get("https://" + addr + ":8000/api/v2/store", function(data2,res) {
 
                                 var buffer = data2;
                                 var lc = getHash(JSON.stringify(buffer));
@@ -390,7 +312,11 @@ function syncStore(hosts) {
             if(result == true) {
                 log('NFO','Synchronization successful.');
             } else {
-                log('ERR','Synchronization failed.');
+                if(addresses.length > 1) {
+                    log('ERR','Synchronization failed.');
+                } else {
+                    log('NFO','Nothing to synchronize. First on network.');
+                }
             }
         } else {
             log('NFO','Nothing to synchronize. The store is empty because it is the first start.');
@@ -398,7 +324,6 @@ function syncStore(hosts) {
     });
 
 }
-
 
 //----------- Write store
 function writeStore() {
@@ -410,7 +335,6 @@ function writeStore() {
         }
     });
 }
-
 
 //----------- Load store
 function loadStore() {
@@ -425,7 +349,6 @@ function loadStore() {
     }); 
 }
 
-
 //----------- Load credentials
 function loadCredentials() {
     try {
@@ -435,7 +358,6 @@ function loadCredentials() {
         log('ERR','Can\'t load credentials.json file, default credentials will be used.');
     }
 }
-
 
 //----------- Refresh members
 function refreshMembers() {
@@ -449,13 +371,11 @@ function refreshMembers() {
     
 }
 
-
 //----------- Add member to blacklist (when checksum error)
 function addToBlacklist(address) {
     appStruct.config.blacklist.push(address);
     log('WAR', address + ' is now isolated from cluster.');
 }
-
 
 //----------- Remove member from blacklist
 function rmFromBlacklist(address) {
@@ -463,9 +383,8 @@ function rmFromBlacklist(address) {
     log('NFO', address + ' is back in the cluster.');
 }
 
-
 //----------- Update remote blacklist
-function updateRemoteBlacklist(method,address) {
+function updateRemoteBlacklist(method, address) {
 
     var tmp = htds.hosts();
     var uri = null;
@@ -476,10 +395,10 @@ function updateRemoteBlacklist(method,address) {
 
             switch(method) {
                 case 'ADD' :
-                    uri  = 'https://' + entry + ':8000' + '/api/config/blacklist/add/' + address;
+                    uri  = 'https://' + entry + ':8000' + '/api/v2/config/blacklist/add/' + address;
                     break;
                 case 'DEL' :
-                    uri  = 'https://' + entry + ':8000' + '/api/config/blacklist/del/' + address;
+                    uri  = 'https://' + entry + ':8000' + '/api/v2/config/blacklist/del/' + address;
                     break;
             }
 
@@ -493,9 +412,8 @@ function updateRemoteBlacklist(method,address) {
 
 }
 
-
 //----------- Log
-function log(type,msg) {
+function log(type, msg) {
     
     if(appStruct.log.length > 20) {
         appStruct.log.splice(0,1);
@@ -505,113 +423,255 @@ function log(type,msg) {
     
 }
 
+//----------- Update hosts
+function updateHosts(refCfg, path, body, method) {
 
-//----------- Test & returns JSON
-function IsJsonString(str) {
-    
-    var json = null;
-    
-    try {
-        json = JSON.parse(str);
-    } catch (e) {
+    var args = {
+        data: body,
+        headers: { "Content-Type": "application/json" }
     }
+
+    for(var x in refCfg.members) {
+
+        if(refCfg.members[x].address != ip.address()) {
+
+            if(refCfg.blacklist.indexOf(refCfg.members[x].address) == -1) {
+
+                if(norepl == false) {
+
+                    var errMsg  = refCfg.members[x].address + ' is unreachable. The updating of the remote host failed.';
+                    var baseUri = 'https://' + refCfg.members[x].address + ':8000/api/v2/store';
+
+                    switch(method) {
+
+                        case 'POST' :
+                            recl.post(baseUri + '?from=' + ip.address() + '&checksum=' + appStruct.status.checksum, args, function(data,res) {
+                            }).on('error', function(err) { 
+                                log('ERR', errMsg); 
+                            });
+                            break;
+
+                        case 'DELETE' :
+                            recl.delete(baseUri + '/' + path + '?from=' + ip.address() + '&checksum=' + appStruct.status.checksum, function(data,res) {
+                            }).on('error', function(err) { 
+                                log('ERR', errMsg); 
+                            });
+                            break;
+
+                        case 'UPDATE' :
+                            recl.put(baseUri + '?from=' + ip.address() + '&checksum=' + appStruct.status.checksum, args, function(data,res) {
+                            }).on('error', function(err) { 
+                                log('ERR', errMsg); 
+                            });
+                            break;
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    }
+
+}
+
+//----------- Test if valid string
+function isValidString(str) {
+    return !/[^\w\s]/gi.test(str);
+}
+
+//----------- Permit value 
+function permitVal(val) {
+    if(typeof val !== 'function' && 
+       typeof val !== 'symbol' &&
+       typeof val !== 'undefined' &&
+       val !== null) {
+        return val;
+    } else {
+        return null;
+    }
+}
+
+//----------- Recursive function from hell to manage object structure from a path. Broken head.
+function index(refObj, path, value) {
+
+    if(refObj !== undefined && refObj !== null) {
+        
+        if (typeof path == 'string') {
+
+            if(path.charAt(0) != '/') { path = '/' + path; }
+            if(path.slice(-1) == '/') { path = path.slice(0,-1); }
+
+            path = path.replace('/','').split('/');
+
+            if(path.length == 1 && path[0] === '' && value !== undefined && value !== null) {
+                if(Object.prototype.toString.call(value) == '[object Object]' && Object.keys(value).length > 0) {
+                    return refObj[Object.keys(value)[0]] = value[Object.keys(value)[0]];
+                } else {
+                    return { statusCode:400 };
+                } 
+
+            } else if(path.length == 1 && path[0] === '') {
+                return refObj;
+
+            } else {
+                return index(refObj, path, value);
+            }
+
+        } else if(path.length == 1 && refObj.hasOwnProperty(path[0]) && value !== undefined && value !== null) {
+            if(Object.prototype.toString.call(value) == '[object Object]' && Object.keys(value).length > 0) {
+                if(Object.prototype.toString.call(refObj[path[0]]) != '[object Object]' && 
+                   Object.prototype.toString.call(value[Object.keys(value)[0]]) == '[object Array]') {
+                    refObj[path[0]] = {};
+                } 
+                return refObj[path[0]][Object.keys(value)[0]] = value[Object.keys(value)[0]];
+                
+            } else {
+                return refObj[path[0]] = value;
+            } 
+
+        } else if(path.length > 0) {
+            if(refObj.hasOwnProperty(path[0])) {
+                return index(refObj[path[0]], path.slice(1), value);
+            } else {
+                return { statusCode:404 };
+            }
+        
+        } else if(path.length === 0) {
+            return refObj;
+
+        } else {
+            return { statusCode:400 };
+        }
+
+    } else {
+        return { statusCode:400 };
+    }
+
+}
+
+//----------- Recursive function from hell to delete an object members from a given path.
+function delIndex(refObj, path) {
+
+    if (typeof path == 'string') {
+
+        if(path.charAt(0) != '/') { path = '/' + path; }
+        if(path.slice(-1) == '/') { path = path.slice(0,-1); }
+
+        path = path.replace('/','').split('/');
+
+        if(path.length == 1 && path[0] === '') {
+            return { statusCode:400 };
+        } else {
+            return delIndex(refObj, path);
+        }
     
-    return json;
+    } else if(path.length == 2 && Object.prototype.toString.call(refObj[path[0]]) == '[object Array]') {
+        refObj[path[0]].splice(path[1],1);
+        return { statusCode:200 };
+
+    } else if(path.length > 1) {
+        if(refObj.hasOwnProperty(path[0])) {
+            return delIndex(refObj[path[0]], path.slice(1));
+        } else {
+            return { statusCode:404 };
+        }
+
+    } else if(path.length == 1) {
+        if(Object.prototype.toString.call(refObj[path[0]]) == '[object Array]') {
+    	    refObj[path[0]] = {};
+        } 
+        delete refObj[path[0]];
+        return { statusCode:200 };
+
+    }
+
+}
+
+//----------- Search in JSON
+function search(refObj, key, parent="") {
+
+    var result = [];
+
+    for (var i in refObj) {
+        
+        if (Object.prototype.toString.call(refObj[i]) == '[object Object]') {
+            result = result.concat(search(refObj[i], key, i));
+        } else if(i == key) {
+            result.push({
+                parent: parent,
+                key:i,
+                value: refObj[i]
+            });
+        }
+
+    }
+
+    return result;
 }
 
 
-//----------------------------------------- REST API
+//----------------------------------------- REST API v2
 
 //----------- GET
-appl.get('/api/status', auth, function(req,res) {
+
+// Get status
+appl.get('/api/v2/status', auth, function(req,res) {
     appStruct.status.suptime = Math.round((Date.now() - appStruct.status.sdate)/1000);
     appStruct.status.ouptime = os.uptime();
     res.send(appStruct.status);
 });
 
-appl.get('/api/status/checksum', auth, function(req,res) {
+// Get store checksum
+appl.get('/api/v2/status/checksum', auth, function(req,res) {
     res.send(appStruct.status.checksum);
 });
 
-appl.get('/api/config', auth, function(req,res) {
+// Get instance config
+appl.get('/api/v2/config', auth, function(req,res) {
     res.send(appStruct.config);
 });
 
-appl.get('/api/log', auth, function(req,res) {
+// Get logs
+appl.get('/api/v2/log', auth, function(req,res) {
     res.send(appStruct.log);
 });
 
-appl.get('/api/config/members', auth, function(req,res) {
+// Get members of cluster
+appl.get('/api/v2/config/members', auth, function(req,res) {
     res.send(appStruct.config.members);
 });
 
-appl.get('/api/store', auth, function(req,res) {
+// Get blacklist of cluster
+appl.get('/api/v2/config/blacklist', auth, function(req,res) {
+    res.send(appStruct.config.blacklist);
+});
+
+// Get all the store
+appl.get('/api/v2/store', auth, function(req,res) {
     res.send(appStruct.store);
 });
 
-appl.get('/api/store/:node', auth, function(req,res) {
-    if(appStruct.store.hasOwnProperty(req.params.node)) {
-        res.send(appStruct.store[req.params.node]);
-    } else {
-        res.sendStatus(404);
-    }
+// Get element of store by path
+appl.get('/api/v2/store/*', auth, function(req,res) {
+
+    var result  = index(appStruct.store, req.params[0]);
+    result.statusCode ? res.sendStatus(result.statusCode) : res.send(result);
+    delete result;
+
 });
 
-appl.get('/api/store/:node/:key', auth, function(req,res) {
-    if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty(req.params.key)) {
-        res.send(appStruct.store[req.params.node][req.params.key]);
-    } else {
-        res.sendStatus(404);
-    }
+//Search by key
+appl.get('/api/v2/search/:key', auth, function(req,res) {
+    res.send(search(appStruct.store,req.params.key));
 });
-
 
 //----------- POST
 
-// Create node
-appl.post('/api/store/:node', auth, function(req,res) {
-    try {
-        if(appStruct.store.hasOwnProperty(req.params.node)) {
-            res.sendStatus(409);
-        } else {
-            if(typeof req.params.node == 'string') {
-                treatUpdate(req.params,req.body,req.path,'POST');
-                res.sendStatus(201);
-            } else {
-                res.sendStatus(400);
-            }
-        }
-    } catch(e) {
-        res.sendStatus(400);
-    }
-});
-
-
-// Create key
-appl.post('/api/store/:node/:key', auth, function(req,res) {
-    try {
-        if(appStruct.store.hasOwnProperty(req.params.node)) {
-            if(!appStruct.store[req.params.node].hasOwnProperty(req.params.key)) {
-                if(typeof req.params.key == 'string') {
-                    treatUpdate(req.params,req.body,req.path,'POST');
-                    res.sendStatus(201);
-                } else {
-                    res.sendStatus(400);
-                }
-            } else {
-                res.sendStatus(409);
-            }
-        } else {
-            res.sendStatus(404);
-        }
-    } catch(e) {
-        res.sendStatus(400);
-    }
-});
-
-
 // Add member to blacklist
-appl.post('/api/config/blacklist/add/:addr', auth, function(req,res) {
+appl.post('/api/v2/config/blacklist/add/:addr', auth, function(req,res) {
     try {
         addToBlacklist(req.params.addr);
         res.sendStatus(200);
@@ -620,9 +680,8 @@ appl.post('/api/config/blacklist/add/:addr', auth, function(req,res) {
     }
 });
 
-
 // Remove member from blacklist
-appl.post('/api/config/blacklist/del/:addr', auth, function(req,res) {
+appl.post('/api/v2/config/blacklist/del/:addr', auth, function(req,res) {
     try {
         rmFromBlacklist(req.params.addr);
         res.sendStatus(200);
@@ -631,60 +690,115 @@ appl.post('/api/config/blacklist/del/:addr', auth, function(req,res) {
     }
 });
 
+// Create a resource 
+appl.post('/api/v2/store', auth, function(req,res) {
 
-//----------- DELETE
+    var body        = req.body;
+    var path        = permitVal(body.path);
+    var node        = permitVal(body.node);
+    var key         = permitVal(body.key);
+    var value       = permitVal(body.value);
 
-// Delete node
-appl.delete('/api/store/:node', auth, function(req,res) {
-    try {
-        if(appStruct.store.hasOwnProperty(req.params.node)) {
-            treatUpdate(req.params,req.body,req.path,'DELETE');
-            res.sendStatus(200);
+    // Create a node
+    if(path !== null && node !== null && key === null && value === null && isValidString(node) && Object.keys(req.body).length == 2) {
+        if(index(appStruct.store, path)[node]) {
+            var result = 409;
         } else {
-            res.sendStatus(404);
+            var result = index(appStruct.store, path, { [node]:{} }).statusCode;
         }
-    } catch(e) {
-        res.sendStatus(400);
-    }
-});
 
-
-// Delete key
-appl.delete('/api/store/:node/:key', auth, function(req,res) {
-    try {
-        if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty([req.params.key])) {
-            treatUpdate(req.params,req.body,req.path,'DELETE');
-            res.sendStatus(200);
+    // Create a key:value pair
+    } else if(path !== null && node === null && key !== null && value !== null && isValidString(key) && Object.keys(req.body).length == 3) {
+        if(index(appStruct.store, path)[key]) {
+            var result = 409;
         } else {
-            res.sendStatus(404);
+            var result = index(appStruct.store, path, { [key]:value }).statusCode;
         }
-    } catch(e) {
-        res.sendStatus(400);
+
+    // Bad request
+    } else {
+        var result = 400;
     }
+
+    result ? (res.sendStatus(result)) : (
+        res.sendStatus(201),
+        checksumCalculation(),
+        writeStore()
+    );
+
+    if(!req.query.from && !req.query.checksum && !result) {
+        updateHosts(appStruct.config, path, body, 'POST');
+        delete result;
+
+    } else if(!result) {
+        checksumCompare(req.query.from, req.query.checksum, 'POST');
+        delete result;
+
+    }
+
 });
 
 
 //----------- UPDATE
 
-// Update key
-appl.put('/api/store/:node/:key', auth, function(req,res) {
-    if(appStruct.store.hasOwnProperty(req.params.node) && appStruct.store[req.params.node].hasOwnProperty([req.params.key])) {
-        if(typeof req.body.value != 'object' && typeof req.body.value != 'function' && typeof req.body.value != 'symbol') {
-            treatUpdate(req.params,req.body,req.path,'UPDATE')
-            res.sendStatus(200);
-        } else {
-            res.sendStatus(400);
+// Update value
+appl.put('/api/v2/store', auth, function(req,res) {
+
+    var body        = req.body;
+    var path        = permitVal(body.path);
+    var value       = permitVal(body.value);
+
+    if(path != null && value != null & Object.keys(req.body).length == 2) {
+
+        result = index(appStruct.store, path, value).statusCode;
+        result ? (res.sendStatus(result)) : (
+            res.sendStatus(200),
+            checksumCalculation(),
+            writeStore()
+        );
+
+        if(!req.query.from && !req.query.checksum && !result) {
+            updateHosts(appStruct.config, path, body, 'UPDATE');
+        } else if(!result) {
+            checksumCompare(req.query.from, req.query.checksum, 'UPDATE');
         }
+
+        delete result;
+
     } else {
-        res.sendStatus(404);
+        res.sendStatus(400);
     }
+
+});
+
+
+//----------- DELETE
+
+// Delete a resource
+appl.delete('/api/v2/store/*', auth, function(req,res) {
+
+    result = delIndex(appStruct.store, req.params[0]).statusCode;
+    res.sendStatus(result);
+
+    if(result == 200) {
+        checksumCalculation();
+        writeStore();
+        if(!req.query.from && !req.query.checksum) {
+            updateHosts(appStruct.config, req.params[0], null, 'DELETE');
+        } else {
+            checksumCompare(req.query.from, req.query.checksum, 'DELETE');
+        }
+    } 
+    
+    delete result;
+
 });
 
 
 //----------- PATCH
 
 // Synchronize store
-appl.patch('/api/store/sync', auth, function(req,res) {
+appl.patch('/api/v2/sync', auth, function(req,res) {
     syncStore(htds.hosts());
     res.sendStatus(200);
 });

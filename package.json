@@ -1,6 +1,6 @@
 {
   "name": "manada",
-  "version": "0.7.3",
+  "version": "0.9.0",
   "description": "Manada is a distributed store service that works with multicast discovery.",
   "main": "manada.js",
   "author": "Julien Blanc",
@@ -10,5 +10,13 @@
     "url": "git+https://github.com/j8la/manada.git"
   },
   "dependencies": {
+    "argparse": "^1.0.7",
+    "async": "^2.0.0-rc.6",
+    "basic-auth": "^1.0.4",
+    "express": "^4.14.0",
+    "helmet": "^2.1.1",
+    "host-discovery": "^1.0.5",
+    "ip": "^1.1.3",
+    "node-rest-client": "^2.0.1"
   }
 }
